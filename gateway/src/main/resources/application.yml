@@ -1,32 +1,27 @@
-spring:
-  redis:
-    host: localhost
-    port: 6379
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
-    virtual-host: /
-  datasource:
-    driver-class-name: org.mariadb.jdbc.Driver
-    url: jdbc:mariadb://localhost:3306/order_system
-    username: root
-    password: 1234
-  jpa:
-    database: mysql
-    database-platform: org.hibernate.dialect.MariaDBDialect
-    generate-ddl: true
-    hibernate:
-      ddl-auto: update
-    show_sql: true
-jwt:
-  expiration: 1000
-  #  인코딩된 문자 32자 이상 필요.(특수문자안됨)
-  #  beyondaccesstokensecretkeybeyondaccesstokensecretkeybeyondaccesstokensecretkeybeyondaccesstokensecretkeybeyondaccesstokensecretkeybeyondaccesstokensecretkey
-  secretKey: YmV5b25kYWNjZXNzdG9rZW5zZWNyZXRrZXliZXlvbmRhY2Nlc3N0b2tlbnNlY3JldGtleWJleW9uZGFjY2Vzc3Rva2Vuc2VjcmV0a2V5YmV5b25kYWNjZXNzdG9rZW5zZWNyZXRrZXliZXlvbmRhY2Nlc3N0b2tlbnNlY3JldGtleWJleW9uZGFjY2Vzc3Rva2Vuc2VjcmV0a2V5
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
 
-  expirationRt: 288000
-  #  인코딩된 문자 32자 이상 필요.(특수문자안됨)
-  #  beyondrefreshtokenkeybeyondrefreshtokenkeybeyondrefreshtokenkeybeyondrefreshtokenkeybeyondrefreshtokenkey
-  secretKeyRt: YmV5b25kcmVmcmVzaHRva2Vua2V5YmV5b25kcmVmcmVzaHRva2Vua2V5YmV5b25kcmVmcmVzaHRva2Vua2V5YmV5b25kcmVmcmVzaHRva2Vua2V5YmV5b25kcmVmcmVzaHRva2Vua2V5
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: 'http://localhost:3000'
+            allowedMethods: '*'
+            allowedHeaders: '*'
+            allowedCredentials: true
+      routes:
+        - id: member-service
+          predicates:
+            - Path=/member-service/**
+          filters:
+#            첫번째 접두어를 제거후에 member-service로 전달
+            - StripPrefix=1
+          uri: lb://member-service
+
+#        게이트웨이에서 라우트 설정과 전체 cors 설정함.

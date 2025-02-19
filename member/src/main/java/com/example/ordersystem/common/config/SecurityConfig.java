@@ -29,8 +29,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         return httpSecurity
-//                spring security에서 cors 정책 지정.
-                .cors(c -> c.configurationSource(corsConfiguration()))
+//                gateway에서 cors 공통처리 했으므로 제외
                 .csrf(AbstractHttpConfigurer::disable) //csrf(보안공격 중 하나) 비활성화
                 .httpBasic(AbstractHttpConfigurer::disable) //http basic 보안방식 비활성화
 //                세션로그인 방식 사용하지 않는다는 것을 의미.
@@ -42,16 +41,7 @@ public class SecurityConfig {
                 .build();
     }
 
-    private CorsConfigurationSource corsConfiguration() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
-        configuration.setAllowedMethods(Arrays.asList("*")); // 모든 HTTP(get, post 등) 메서드 허용
-        configuration.setAllowedHeaders(Arrays.asList("*")); // 모든 헤더 허용
-        configuration.setAllowCredentials(true); // 자격 증명 허용
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration); //모든 url패턴에 대해 cors설정 적용
-        return source;
-    }
+
 
     @Bean
     public PasswordEncoder makePassword() {
