@@ -1,25 +1,23 @@
 package com.example.ordersystem.ordering.service;
 
-import com.example.ordersystem.common.dtos.StockRabbitDto;
 import com.example.ordersystem.common.service.StockInventoryService;
 import com.example.ordersystem.common.service.StockRabbitmqService;
-import com.example.ordersystem.member.domain.Member;
-import com.example.ordersystem.member.repository.MemberRepository;
 import com.example.ordersystem.ordering.controller.SseController;
 import com.example.ordersystem.ordering.domain.OrderDetail;
 import com.example.ordersystem.ordering.domain.Ordering;
 import com.example.ordersystem.ordering.dtos.OrderCreateDto;
-import com.example.ordersystem.ordering.dtos.OrderDetailDto;
 import com.example.ordersystem.ordering.dtos.OrderListResDto;
+import com.example.ordersystem.ordering.dtos.ProductDto;
+import com.example.ordersystem.ordering.dtos.ProductUpdateStockDto;
 import com.example.ordersystem.ordering.repository.OrderingDetailRepository;
 import com.example.ordersystem.ordering.repository.OrderingRepository;
-import com.example.ordersystem.product.domain.Product;
-import com.example.ordersystem.product.repository.ProductRepository;
 import jakarta.persistence.EntityNotFoundException;
-import org.springframework.security.core.Authentication;
+import org.springframework.http.*;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,88 +26,97 @@ import java.util.List;
 @Transactional
 public class OrderingService {
     private final OrderingRepository orderingRepository;
-    private final MemberRepository memberRepository;
     private final OrderingDetailRepository orderingDetailRepository;
-    private final ProductRepository productRepository;
     private final StockInventoryService stockInventoryService;
     private final StockRabbitmqService stockRabbitmqService;
     private final SseController sseController;
+    private final RestTemplate restTemplate;
+    private final ProductFeign productFeign;
+    private final KafkaTemplate<String,Object> kafkaTemplate;
 
-    public OrderingService(OrderingRepository orderingRepository, MemberRepository memberRepository, OrderingDetailRepository orderingDetailRepository, ProductRepository productRepository, StockInventoryService stockInventoryService, StockRabbitmqService stockRabbitmqService, SseController sseController) {
+    public OrderingService(OrderingRepository orderingRepository, OrderingDetailRepository orderingDetailRepository, StockInventoryService stockInventoryService, StockRabbitmqService stockRabbitmqService, SseController sseController, RestTemplate restTemplate, ProductFeign productFeign, KafkaTemplate<String, Object> kafkaTemplate) {
         this.orderingRepository = orderingRepository;
-        this.memberRepository = memberRepository;
         this.orderingDetailRepository = orderingDetailRepository;
-        this.productRepository = productRepository;
         this.stockInventoryService = stockInventoryService;
         this.stockRabbitmqService = stockRabbitmqService;
         this.sseController = sseController;
+        this.restTemplate = restTemplate;
+        this.productFeign = productFeign;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     public Ordering orderCreate(List<OrderCreateDto> dtos) {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        Member member = memberRepository.findByEmail(email).orElseThrow(()->new EntityNotFoundException("member is not found"));
-
-////        방법1. cascading 없이 db저장
-////        Ordering객체 생성 및 save
-//        Ordering ordering = Ordering.builder().member(member).build();
-//        orderingRepository.save(ordering);
-////        OrderingDetail 객체 생성 및 save
-//        for (OrderCreateDto o : dtos) {
-//            Product product = productRepository.findById(o.getProductId()).orElseThrow(()->new EntityNotFoundException("product is not found"));
-//            if (product.getStockQuantity() < o.getProductCount()) {
-//                throw new IllegalArgumentException("재고부족");
-//            } else {
-////                재고감소 로직.
-//                product.updateStockQuantity(o.getProductCount());
-//            }
-//            OrderDetail orderDetail = OrderDetail.builder()
-//                    .ordering(ordering)
-//                    .product(product)
-//                    .quantity(o.getProductCount())
-//                    .build();
-//            orderingDetailRepository.save(orderDetail);
-//        }
-
-//        방법2. cascading 사용하여 db저장
-//        Ordering객체 생성하면서 OrderingDetail객체 같이 생성
         Ordering ordering = Ordering.builder()
-                .member(member)
+                .memberEmail(email)
                 .build();
 
         for (OrderCreateDto o : dtos) {
-            Product product = productRepository.findById(o.getProductId()).orElseThrow(()->new EntityNotFoundException("product is not found"));
+//            product서버에 api요청을 통해 product객체를 받아와야함. -> 동기처리 필수
+            String productGetUrl = "http://product-service/product/" + o.getProductId();
+            String token = SecurityContextHolder.getContext().getAuthentication().getCredentials().toString();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", token);
+            HttpEntity<String> httpEntity = new HttpEntity<>(headers);
+            ResponseEntity<ProductDto> response = restTemplate.exchange(productGetUrl, HttpMethod.GET, httpEntity, ProductDto.class);
+            ProductDto productDto = response.getBody();
+            System.out.println(productDto);
             int quantity = o.getProductCount();
-//            동시성 이슈 고려 안한 코드.
-            if (product.getStockQuantity() < quantity) {
+            if (productDto.getStockQuantity() < quantity) {
                 throw new IllegalArgumentException("재고부족");
             } else {
-//                재고감소 로직.
-                product.updateStockQuantity(o.getProductCount());
+//                재고감소 api요청을 product 서버에 보내야함 -> 비동기처리 가능.
+                System.out.println("start");
+                String productUpdateStockUrl = "http://product-service/product/updatestock";
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<ProductUpdateStockDto> updateEntity = new HttpEntity<>(
+                        ProductUpdateStockDto.builder().productId(o.getProductId()).productQuantity(o.getProductCount()).build(), headers
+                );
+                restTemplate.exchange(productUpdateStockUrl, HttpMethod.PUT, updateEntity, void.class);
+                System.out.println("end");
             }
-
-////            동시성이슈를 고려한 코드
-////            redis를 통한 재고관리 및 재고잔량 확인
-//            int newQuantity = stockInventoryService.decreaseStock(product.getId(), quantity);
-//            if (newQuantity < 0) {
-//                throw new IllegalArgumentException("재고부족");
-//            }
-////            rdb동기화(rabbitmq)
-//            StockRabbitDto stockRabbitDto = StockRabbitDto.builder().productId(product.getId()).productCount(quantity).build();;
-//            stockRabbitmqService.puslish(stockRabbitDto);
 
             OrderDetail orderDetail = OrderDetail.builder()
                     .ordering(ordering)
-                    .product(product)
+//                    받아온 product 객체를 통해 id값 세팅.
+                    .productId(o.getProductId())
                     .quantity(o.getProductCount())
                     .build();
             ordering.getOrderDetails().add(orderDetail);
         }
-        Ordering ordering1 = orderingRepository.save(ordering);
+        orderingRepository.save(ordering);
+        return ordering;
+    }
 
-//          sse를 통한 admin계정에 메시지 발송
+    public Ordering orderFeignkafkaCreate(List<OrderCreateDto> dtos) {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        Ordering ordering = Ordering.builder()
+                .memberEmail(email)
+                .build();
 
-        sseController.publishMessage(ordering1.fromEntity(), "admin@naver.com");
+        for (OrderCreateDto o : dtos) {
+//            product서버에 feign클라이언트를 통한 api요청 조회
+            ProductDto productDto = productFeign.getProductById(o.getProductId());
 
+
+            int quantity = o.getProductCount();
+            if (productDto.getStockQuantity() < quantity) {
+                throw new IllegalArgumentException("재고부족");
+            } else {
+//                재고감소 api요청을 product 서버에 보내야함 -> kafka에 메세지 발행.
+//                productFeign.updateProductStock(ProductUpdateStockDto.builder().productId(o.getProductId()).productQuantity(o.getProductCount()).build());
+                ProductUpdateStockDto updateStockDto = ProductUpdateStockDto.builder().productId(o.getProductId()).productQuantity(o.getProductCount()).build();
+            kafkaTemplate.send("update-stock-topic", updateStockDto);
+            }
+            OrderDetail orderDetail = OrderDetail.builder()
+                    .ordering(ordering)
+//                    받아온 product 객체를 통해 id값 세팅.
+                    .productId(o.getProductId())
+                    .quantity(o.getProductCount())
+                    .build();
+            ordering.getOrderDetails().add(orderDetail);
+        }
+        orderingRepository.save(ordering);
         return ordering;
     }
 
@@ -124,10 +131,9 @@ public class OrderingService {
 
     public List<OrderListResDto> myOrders() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        Member member = memberRepository.findByEmail(email).orElseThrow(()->new EntityNotFoundException("member is not found"));
 
         List<OrderListResDto> orderListResDtoList = new ArrayList<>();
-        for (Ordering o : member.getOrderingList()) {
+        for (Ordering o : orderingRepository.findByMemberEmail(email)) {
             orderListResDtoList.add(o.fromEntity());
         }
 
@@ -137,9 +143,6 @@ public class OrderingService {
     public Ordering orderCancel(Long id) {
         Ordering ordering = orderingRepository.findById(id).orElseThrow(()->new EntityNotFoundException("order is not found"));
         ordering.orderCancel();
-        for (OrderDetail od : ordering.getOrderDetails()) {
-            od.getProduct().orderCancel(od.getQuantity());
-        }
         return ordering;
     }
 }

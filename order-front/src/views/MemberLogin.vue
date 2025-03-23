@@ -48,7 +48,7 @@ export default {
         async doLogin() {
             // json으로 보내는 방법은 객체를 만들어주면 된다.
             const loginData = {email:this.email, password:this.password};
-            const response = await axios.post(`${process.env.VUE_APP_API_BASE_URL}/member/doLogin`, loginData)
+            const response = await axios.post(`${process.env.VUE_APP_API_BASE_URL}/member-service/member/doLogin`, loginData)
             const token = response.data.token
             const refreshToken = response.data.refreshToken
             localStorage.setItem('token', token) //왼쪽의 토큰은 키값, 오른쪽의 토큰은 받아온 토큰을 밸류로 세팅.

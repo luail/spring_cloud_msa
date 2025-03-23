@@ -4,6 +4,7 @@ import com.example.ordersystem.product.domain.Product;
 import com.example.ordersystem.product.dtos.ProductRegisterDto;
 import com.example.ordersystem.product.dtos.ProductResDto;
 import com.example.ordersystem.product.dtos.ProductSerchDto;
+import com.example.ordersystem.product.dtos.ProductUpdateStockDto;
 import com.example.ordersystem.product.service.ProductService;
 import lombok.Getter;
 import org.springframework.data.domain.Page;
@@ -39,4 +40,16 @@ public class ProductController {
         return new ResponseEntity<>(productResDtos, HttpStatus.OK);
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<?> productDetail(@PathVariable Long id) {
+        ProductResDto productResDto = productService.productDetail(id);
+        return new ResponseEntity<>(productResDto, HttpStatus.OK);
+    }
+
+    @PutMapping("/updatestock")
+    public ResponseEntity<?> productStockUpdate(@RequestBody ProductUpdateStockDto dto) {
+        System.out.println("product update start");
+        Product product = productService.updateStockQuantity(dto);
+        return new ResponseEntity<>(product.getId() , HttpStatus.OK);
+    }
 }

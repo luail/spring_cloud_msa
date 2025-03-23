@@ -20,6 +20,18 @@ spring:
     hibernate:
       ddl-auto: update
     show_sql: true
+  application:
+    name: ordering-service
+  kafka:
+    kafka-server: localhost:9092
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka
+
+server:
+  port: 0
+
 jwt:
   expiration: 1000
   #  인코딩된 문자 32자 이상 필요.(특수문자안됨)
